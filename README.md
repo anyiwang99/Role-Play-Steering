@@ -62,8 +62,9 @@ Extensive experiments show that our **SAE-based steering method**:
 ```bash
 pip install -r requirements.txt
 ```
-### 1. Install dependencies
+### 1. Run evaluation
 
 ```bash
 python sae_pipeline.py
 ```
+You can configure model name, dataset, number of features (k), evaluation setting, and other hyperparameters inside the script or via command-line arguments.
