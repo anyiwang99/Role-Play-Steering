@@ -50,10 +50,14 @@ Extensive experiments show that our **SAE-based steering method**:
 
 ``` 
 ├── data/
-│ ├── train.csv # SVAMP training data
-│ └── SVAMP.json # SVAMP test data
-├── requirements.txt # Dependencies for running the code
-└── sae_pipeline.py # Main script to run evaluations with and without steering
+│ ├── train.csv # SVAMP training data (for arithmetic tasks)
+│ ├── SVAMP.json # SVAMP test data (arithmetic)
+│ ├── role_prompts_arithmetic.txt # Role-play prompts for arithmetic reasoning
+│ ├── role_prompts_commonsense.txt # Role-play prompts for commonsense reasoning
+│ ├── few_shot_prompts_arithmetic.json # Few-shot exemplars for arithmetic tasks
+│ └── few_shot_prompts_commonsense.json # Few-shot exemplars for commonsense tasks
+├── requirements.txt # Python dependencies
+└── sae_pipeline.py # Main script to run evaluation with and without steering
 ``` 
 ---
 
