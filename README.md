@@ -68,4 +68,4 @@ pip install -r requirements.txt
 ```bash
 python sae_pipeline.py
 ```
-You can configure model name, dataset, number of features (k), evaluation setting, and other hyperparameters inside the script or via command-line arguments.
+You can configure model name, dataset, evaluation setting, sae layer and other hyperparameters inside the script or via command-line arguments.
