@@ -54,7 +54,7 @@ def load_and_process_dataset(name):
         test_questions = [format_csqa_question(example) for example in dataset["validation"]]
         true_answers = [item.lower() for item in dataset["validation"]["answerKey"]]
     elif name == "svamp":
-        df = pd.read_csv("train.csv")
+        df = pd.read_csv("data/train.csv")
         train_questions = []
         for idx, row in df.iterrows():
             question = row['Question']
@@ -70,7 +70,7 @@ def load_and_process_dataset(name):
             question = re.sub(r'\s+', ' ', question).strip()
             train_questions.append(fix_punctuation_spacing(question))
 
-        with open("SVAMP.json", "r") as f:
+        with open("data/SVAMP.json", "r") as f:
             raw_test_data = json.load(f)
 
         test_questions = []
@@ -314,6 +314,6 @@ if __name__ == "__main__":
     parser.add_argument("--domain", type=str, default="arithmetic", choices=["arithmetic", "commonsense"])
     parser.add_argument("--layer", type=int, default=25)
     args = parser.parse_args()
-    args.role_path = f"role_prompts_{args.domain}.txt"
-    args.eval_path = f"few_shot_prompts_{args.domain}.json"
+    args.role_path = f"data/role_prompts_{args.domain}.txt"
+    args.eval_path = f"data/few_shot_prompts_{args.domain}.json"
     main(args)
