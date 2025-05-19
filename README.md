@@ -60,7 +60,8 @@ Extensive experiments show that our **SAE-based steering method**:
 ### 1. Install dependencies
 ```bash
 pip install -r requirements.txt
-### 2. Run evaluation
+
+### 1. Install dependencies
 
 ```bash
 python sae_pipeline.py
