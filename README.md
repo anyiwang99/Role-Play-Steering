@@ -47,6 +47,7 @@ Extensive experiments show that our **SAE-based steering method**:
 
 
 ## 📁 Code Structure
+,,,
 
 ├── data/
 │ ├── train.csv # SVAMP training data
@@ -55,6 +56,7 @@ Extensive experiments show that our **SAE-based steering method**:
 └── sae_pipeline.py # Main script to run evaluations with and without steering
 
 ---
+'''
 ## ▶️ Getting Started
 
 ### 1. Install dependencies
