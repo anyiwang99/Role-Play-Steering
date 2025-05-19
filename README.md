@@ -40,7 +40,7 @@ We evaluate our method across **three models**, **three datasets**, and **three 
 
 Extensive experiments show that our **SAE-based steering method**:
 - **Consistently improves performance** across models and tasks
-- **Outperforms or matches prompt-based role-playing**
+- **Matches or even outperforms prompt-based role-playing**
 - Offers **greater stability and interpretability** by exposing and controlling internal feature activations
 
 ---
