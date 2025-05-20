@@ -144,7 +144,7 @@ def compute_steering_shift(model, sae, with_prompts, without_prompts, stopword_s
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
 
-    # Stack all activations and compute density difference
+    # Stack all activations and compute activation strength difference
     with_tensor = torch.stack(with_acts)
     without_tensor = torch.stack(without_acts)
     delta = with_tensor - without_tensor
@@ -184,7 +184,7 @@ def steering_hook_factory(steering_shift_tensor, steering_on_flag):
         resid_pre[:, position, :] *= (orig_norm / new_norm) # Normalize back to original L2 norm
     return steering_hook
 
-# Few-shot example selection
+# Few-shot examples selection
 def extract_k_shot_examples(dataset, k, seed=42):
     random.seed(seed)
     # Sort questions by length and sample evenly across the range
@@ -297,7 +297,7 @@ def main(args):
     sae, cfg_dict, sparsity = SAE.from_pretrained(release=args.sae_release, sae_id=args.sae_id, device="cuda")
     hook_point = sae.cfg.hook_name
 
-    # Load dataset, prompts and few-shot examplars
+    # Load dataset, prompts and few-shot exemplars
     dataset, train_questions, test_questions, true_answers = load_and_process_dataset(args.dataset_name)
     role_prompts = load_role_prompts(args.role_path)
     eval_data = load_eval_data(args.eval_path)
