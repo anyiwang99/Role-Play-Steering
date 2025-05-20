@@ -16,17 +16,17 @@ import pandas as pd
 import argparse
 
 
-
+# Load role prompts from file
 def load_role_prompts(filepath):
     with open(filepath, "r", encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]
 
-
+# Load few-shot examples from JSON
 def load_eval_data(filepath):
     with open(filepath, "r", encoding="utf-8") as f:
         return json.load(f)
 
-
+# Format CSQA questions to include labeled answer choices
 def format_csqa_question(example):
     question = example["question"]
     choices = example["choices"]["text"]
@@ -34,18 +34,19 @@ def format_csqa_question(example):
     labeled_choices = [f"({label.lower()}) {text}" for label, text in zip(labels, choices)]
     return f"{question} Answer Choices: {' '.join(labeled_choices)}"
 
-
+## Fix spacing before punctuation and apostrophes
 def fix_punctuation_spacing(text):
-    text = re.sub(r'\s+([,.!?%])', r'\1', text)
-    text = re.sub(r"\s+'\s*", "'", text)
+    text = re.sub(r'\s+([,.!?%])', r'\1', text) # Remove space before punctuation
+    text = re.sub(r"\s+'\s*", "'", text)  # Remove space before apostrophe
     return text
 
-
+# Load and preprocess dataset (gsm8k, csqa, or svamp)
 def load_and_process_dataset(name):
     if name == "gsm8k":
         dataset = load_dataset("gsm8k", "main")
         train_questions = [item["question"] for item in dataset["train"]]
         test_questions = [item["question"] for item in dataset["test"]]
+        # Extract numeric answers from answer strings using regex
         true_answers = [re.search(r"####\s*([\d,.\-]+)", item["answer"]).group(1).replace(",", "") if re.search(r"####\s*([\d,.\-]+)", item["answer"]) else "N/A"
         for item in dataset["test"]]
     elif name == "csqa":
@@ -92,7 +93,7 @@ def load_and_process_dataset(name):
     
     return dataset, train_questions, test_questions, true_answers
 
-
+# Generate prompts with and without role-playing
 def prepare_prompts(train_questions, role_prompts, N, seed):
     random.seed(seed)
     random.shuffle(role_prompts)
@@ -102,7 +103,7 @@ def prepare_prompts(train_questions, role_prompts, N, seed):
     without_role_prompts = selected_questions
     return with_role_prompts, without_role_prompts
 
-
+# Steering vector computation
 def compute_steering_shift(model, sae, with_prompts, without_prompts, stopword_set, punctuation_set, hook_point, k, beta, threshold, scaling):
     with_acts, without_acts = [], []
 
@@ -111,15 +112,19 @@ def compute_steering_shift(model, sae, with_prompts, without_prompts, stopword_s
             w_prompt = with_prompts[i]
             wo_prompt = without_prompts[i]
 
+            # Run model and cache activations
             w_logits, w_cache = model.run_with_cache(w_prompt, prepend_bos=True)
             wo_logits, wo_cache = model.run_with_cache(wo_prompt, prepend_bos=True)
 
+            # Encode activations using the SAE encoder
             w_acts = sae.encode(w_cache[hook_point].to(sae.cfg.device))
             wo_acts = sae.encode(wo_cache[hook_point].to(sae.cfg.device))
 
+            # Tokenize input and remove stopwords and punctuation
             w_tokens = model.tokenizer.convert_ids_to_tokens(model.to_tokens(w_prompt)[0])
             wo_tokens = model.tokenizer.convert_ids_to_tokens(model.to_tokens(wo_prompt)[0])
 
+            ## Create attention masks for meaningful tokens
             w_mask = torch.tensor([
                 (t != '<|begin_of_text|>' and t.lstrip('Ġ').lower() not in stopword_set and t not in punctuation_set)
                 for t in w_tokens
@@ -130,23 +135,27 @@ def compute_steering_shift(model, sae, with_prompts, without_prompts, stopword_s
                 for t in wo_tokens
             ], dtype=torch.bool, device=wo_acts.device)
 
+            # Mean activation over valid tokens
             with_acts.append(w_acts[0][w_mask].mean(dim=0))
             without_acts.append(wo_acts[0][wo_mask].mean(dim=0))
 
+            # Free memory
             del w_cache, wo_cache, w_acts, wo_acts, w_logits, wo_logits
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
 
+    # Stack all activations and compute density difference
     with_tensor = torch.stack(with_acts)
     without_tensor = torch.stack(without_acts)
-
     delta = with_tensor - without_tensor
     mean_delta = delta.mean(dim=0)
 
+    # Compute activation frequency difference
     active_w = (with_tensor > threshold).float().sum(dim=0) / len(with_tensor)
     active_wo = (without_tensor > threshold).float().sum(dim=0) / len(without_tensor)
     activation_diff = active_w - active_wo
 
+    # Compute sensitivity score and select top-k most sensitive features
     sensitivity_score = mean_delta + beta * activation_diff
     top_k_idx = torch.topk(sensitivity_score, k=k).indices
     top_k_features = sensitivity_score[top_k_idx]
@@ -155,6 +164,7 @@ def compute_steering_shift(model, sae, with_prompts, without_prompts, stopword_s
     for idx, score in zip(top_k_idx.tolist(), top_k_features.tolist()):
         print(f"Feature {idx}: Sensitivity {score:.4f}")
 
+    # Compute steering vector as weighted sum of decoder vectors
     top_k_acts = with_tensor[:, top_k_idx]
     strengths = top_k_acts.mean(dim=0) * scaling
     steering_vecs = sae.W_dec[top_k_idx]
@@ -162,21 +172,22 @@ def compute_steering_shift(model, sae, with_prompts, without_prompts, stopword_s
 
     return steering_shift
 
-
+# Steering hook injection
 def steering_hook_factory(steering_shift_tensor, steering_on_flag):
     def steering_hook(resid_pre, hook):
         if resid_pre.shape[1] == 1 or not steering_on_flag:
             return
-        position = resid_pre.shape[1] - 1
+        position = resid_pre.shape[1] - 1 # Inject only at the final token
         orig_norm = torch.norm(resid_pre[:, position, :], p=2, dim=-1, keepdim=True)
         resid_pre[:, position, :] += steering_shift_tensor.to(resid_pre.device)
         new_norm = torch.norm(resid_pre[:, position, :], p=2, dim=-1, keepdim=True)
-        resid_pre[:, position, :] *= (orig_norm / new_norm)
+        resid_pre[:, position, :] *= (orig_norm / new_norm) # Normalize back to original L2 norm
     return steering_hook
 
-
+# Few-shot example selection
 def extract_k_shot_examples(dataset, k, seed=42):
     random.seed(seed)
+    # Sort questions by length and sample evenly across the range
     question_lengths = [len(item["question"]) for item in dataset]
     pairs = list(zip(dataset, question_lengths))
     pairs.sort(key=lambda x: x[1])
@@ -192,10 +203,11 @@ def extract_k_shot_examples(dataset, k, seed=42):
         examples.append(formatted_example)
     return examples
 
+# Prompt generation
 def generate_prompt(k_shot_examples, question):
     return "\n\n".join(k_shot_examples) + f"\n\nQ: {question}\nA: Let's think step by step."
 
-
+# Model generation with optional hook
 def run_generate(model, prompt, layer, hook_fn=None):
     model.reset_hooks()
     hooks = [(f"blocks.{layer}.hook_resid_post", hook_fn)] if hook_fn else []
@@ -205,10 +217,10 @@ def run_generate(model, prompt, layer, hook_fn=None):
     return model.to_string(output[:, 1:])[0]
 
 
-
+# Answer extraction helpers
 def extract_answer_numeric(model_response):
     patterns = [
-        r"Output:\s*\$?(-?\d[\d,\.]*)",
+        r"Output:\s*\$?(-?\d[\d,\.]*)", # Capture numeric answers
         r"The answer is\s*\$?(-?\d[\d,\.]*)",
         r"Therefore,?\s*the answer is\s*\$?(-?\d[\d,\.]*)",
         r"final answer is\s*\$?(-?\d[\d,\.]*)",
@@ -226,7 +238,7 @@ def extract_answer_numeric(model_response):
 
 def extract_answer_multiple_choice(model_response):
     patterns = [
-        r"Output:\s*\(([a-e])\)",              
+        r"Output:\s*\(([a-e])\)", # Match (a), (b), etc.          
         r"The answer is\s*\(([a-e])\)",         
         r"Final answer:?\s*\(([a-e])\)",        
         r"Answer:\s*\(([a-e])\)",               
@@ -239,7 +251,7 @@ def extract_answer_multiple_choice(model_response):
     return None
 
 
-
+# Evaluation
 def evaluate_model(model, dataset, test_questions, true_answers, steering_shift, k_shot_examples, use_steering, layer):
     correct= 0
     hook_fn = steering_hook_factory(steering_shift, steering_on_flag=use_steering) if use_steering else None
@@ -249,6 +261,8 @@ def evaluate_model(model, dataset, test_questions, true_answers, steering_shift,
         prompt = generate_prompt(k_shot_examples, question)
         output = run_generate(model, prompt, layer, hook_fn)
         response = output[len(prompt):].strip()
+
+        # Extract prediction depending on dataset type
         if args.dataset_name in ["gsm8k", "svamp"]:
             pred = extract_answer_numeric(response)
         else:
@@ -259,11 +273,13 @@ def evaluate_model(model, dataset, test_questions, true_answers, steering_shift,
         print(f"Question {i+1}: {question}")  
         print(f"Response {i+1}: {response}")  
         print(f"Model Answer: {pred} | True Answer: {true_answers[i]}\n")
-        
+
+        # Free memory
         del output
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
 
+    # Calculate accuracy
     acc = correct / len(test_questions) * 100
     print(f"\nSteering On: {use_steering}")
     print(f"Accuracy: {acc:.2f}%")
@@ -276,15 +292,17 @@ def main(args):
     stopword_set = set(stopwords.words('english'))
     punctuation_set = set(string.punctuation)
 
+    # Load model and Sparse Autoencoder
     model = HookedTransformer.from_pretrained(args.model_name, n_devices=1, device="cuda")
     sae, cfg_dict, sparsity = SAE.from_pretrained(release=args.sae_release, sae_id=args.sae_id, device="cuda")
     hook_point = sae.cfg.hook_name
 
+    # Load dataset, prompts and few-shot examplars
     dataset, train_questions, test_questions, true_answers = load_and_process_dataset(args.dataset_name)
-
     role_prompts = load_role_prompts(args.role_path)
     eval_data = load_eval_data(args.eval_path)
 
+    # Construct contrastive sample pairs and compute steering vector
     with_prompts, without_prompts = prepare_prompts(train_questions, role_prompts, args.N, args.seed)
     steering_shift = compute_steering_shift(
         model, sae, with_prompts, without_prompts,
@@ -292,7 +310,10 @@ def main(args):
         k=args.k, beta=args.beta, threshold=args.threshold, scaling=args.scaling
     )
 
+    # Generate few-shot examples
     k_shot_examples = extract_k_shot_examples(eval_data, k=args.k_shot)
+
+    # Evaluation
     evaluate_model(model, dataset, test_questions, true_answers, steering_shift, k_shot_examples, use_steering=True, layer=args.layer)
     evaluate_model(model, dataset, test_questions, true_answers, steering_shift, k_shot_examples, use_steering=False, layer=args.layer)
 
