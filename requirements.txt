@@ -1,9 +1,9 @@
-transformers == 4.51.3
-torch == 2.2.1
 accelerate == 1.7.0
 datasets == 2.21.0
+huggingface_hub == 0.31.4
 nltk == 3.9.1
 pandas == 2.2.3
-huggingface_hub == 0.31.4
 sae_lens == 5.10.2
+transformers == 4.51.3
+torch == 2.2.1
 tqdm == 4.67.1
